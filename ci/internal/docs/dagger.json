@@ -1,0 +1,8 @@
+{
+  "name": "docs",
+  "root": "..",
+  "sdk": "go",
+  "dependencies": [
+    "../hugo"
+  ]
+}

@@ -1,0 +1,191 @@
+---
+vector:
+  role: "Stateless-Aggregator"
+
+  image:
+    repository: {{ $.image.repository | quote }}
+    tag: {{ $.image.tag | quote }}
+
+  customConfig:
+    # FIXME
+    # Remove this once https://github.com/vectordotdev/helm-charts/issues/226 is fixed.
+    data_dir: "/vector-data-dir"
+
+    enrichment_tables:
+      geoip:
+        type: "geoip"
+        path: "/usr/local/share/GeoIP/GeoLite2-City.mmdb"
+
+    api:
+      enabled: true
+      address: "[::1]:8686"
+      playground: false
+
+    schema:
+      log_namespace: true
+
+    sources:
+      internal_metrics:
+        type: "internal_metrics"
+
+      kafka:
+        type: "kafka"
+
+        bootstrap_servers: "kafka-broker-lb.example.com:9092"
+
+        tls:
+          enabled: true
+          ca_file: "/etc/vector/tls/ca.crt"
+          crt_file: "/etc/vector/tls/client.crt"
+          key_file: "/etc/vector/tls/client.key"
+
+        auto_offset_reset: "beginning"
+
+        decoding:
+          codec: "json"
+
+    transforms:
+      pre_processed_logs:
+        type: "remap"
+
+        inputs:
+          - "kafka"
+
+        source: |
+          # OpenSearch indexes fields which name contains dots as objects. This can lead to
+          # mapping conflicts.
+
+          if exists(.@kubernetes.pod.labels) {
+            .@kubernetes.pod.labels = map_keys(object!(.@kubernetes.pod.labels)) -> |key| {
+              replace(key, ".", "_")
+            }
+          }
+
+          if exists(.@kubernetes.node.labels) {
+            .@kubernetes.node.labels = map_keys(object!(.@kubernetes.node.labels)) -> |key| {
+              replace(key, ".", "_")
+            }
+          }
+
+          if exists(.@kubernetes) {
+            .@application = {
+              "name": .@kubernetes.pod.labels."app_kubernetes_io/name",
+              "instance": .@kubernetes.pod.labels."app_kubernetes_io/instance",
+              "version": .@kubernetes.pod.labels."app_kubernetes_io/version",
+              "component": .@kubernetes.pod.labels."app_kubernetes_io/component",
+            }
+          }
+
+      unknown_logs:
+        type: "remap"
+
+        source: |
+          %index = {
+            "name": "unparsed",
+            "rotation": "monthly",
+          }
+
+      dropped_logs:
+        type: "remap"
+
+        source: |
+          if %vector.dropped.message == "aborted" {
+            abort
+          }
+
+          %index = {
+            "name": "dropped",
+            "rotation": "yearly",
+          }
+
+          .@dropped = %vector.dropped
+
+      post_processed_logs:
+        type: "remap"
+
+        source: |
+          if !exists(.@timestamp) {
+            .@timestamp = parse_timestamp!(.@kubernetes.timestamp, "%Y-%m-%dT%H:%M:%S%.f%#z")
+          }
+
+          if %index.rotation == "daily" {
+            %index.name = string!(%index.name) + "-daily-" + format_timestamp!(.@timestamp, "%Y.%m.%d")
+          } else if %index.rotation == "weekly" {
+            %index.name = string!(%index.name) + "-weekly-" + format_timestamp!(.@timestamp, "%G.%V")
+          } else if %index.rotation == "monthly" {
+            %index.name = string!(%index.name) + "-monthly-" + format_timestamp!(.@timestamp, "%Y.%m")
+          } else if %index.rotation == "yearly" {
+            %index.name = string!(%index.name) + "-yearly-" + format_timestamp!(.@timestamp, "%Y")
+          }
+
+    sinks:
+      prom_exporter:
+        type: "prometheus_exporter"
+
+        address: "[::]:9090"
+
+        inputs:
+          - "internal_metrics"
+
+      opensearch:
+        type: "elasticsearch"
+
+        endpoints:
+          - "https://opensearch-data-01.example.com:9200"
+          - "https://opensearch-data-02.example.com:9200"
+          - "https://opensearch-data-03.example.com:9200"
+          - "https://opensearch-data-04.example.com:9200"
+
+        tls:
+          ca_file: "/etc/vector/tls/ca.crt"
+
+        auth:
+          strategy: "basic"
+          user: "$OPENSEARCH_USERNAME"
+          password: "$OPENSEARCH_PASSWORD"
+
+        api_version: "v8"
+
+        acknowledgements: true
+
+        inputs:
+          - "post_processed_logs"
+
+  secrets:
+    generic:
+      ca.crt: |
+        -----BEGIN CERTIFICATE-----
+        ...
+        -----END CERTIFICATE-----
+
+  extraVolumeMounts:
+    - name: "tls-config"
+      mountPath: "/etc/vector/tls"
+      readOnly: true
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2G"
+
+    limits:
+      cpu: "2"
+      memory: "4G"
+
+  nodeSelector:
+    role: "logging"
+
+  tolerations:
+    - key: "nodepool"
+      operator: "Equal"
+      value: "logging"
+      effect: "NoSchedule"
+
+  service:
+    enabled: false
+
+  serviceHeadless:
+    enabled: false
+
+  podMonitor:
+    enabled: true

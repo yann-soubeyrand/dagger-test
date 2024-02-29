@@ -1,0 +1,18 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    asciidoctor (2.0.21)
+    asciidoctor-kroki (0.9.1)
+      asciidoctor (~> 2.0)
+    json (2.7.1)
+
+PLATFORMS
+  x86_64-linux
+
+DEPENDENCIES
+  asciidoctor
+  asciidoctor-kroki
+  json
+
+BUNDLED WITH
+   2.2.33

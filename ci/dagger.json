@@ -1,0 +1,23 @@
+{
+  "name": "ci",
+  "root": "..",
+  "sdk": "go",
+  "include": [
+    "ci/",
+    "docs/",
+    "terraform/",
+    "argocd/"
+  ],
+  "exclude": [
+    "ci/**/querybuilder/",
+    "ci/**/dagger.gen.go",
+    "docs/node_modules/",
+    "docs/resources/",
+    "docs/public/",
+    "terraform/.terraform/"
+  ],
+  "dependencies": [
+    "internal/docs",
+    "internal/geoip"
+  ]
+}

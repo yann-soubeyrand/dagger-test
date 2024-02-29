@@ -1,0 +1,8 @@
+{
+  "name": "hugo",
+  "root": "..",
+  "sdk": "go",
+  "dependencies": [
+    "../sass"
+  ]
+}
